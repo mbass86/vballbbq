@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const TournamentContext = createContext();
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:3001/api';
 
 export function useTournament() {
   return useContext(TournamentContext);
@@ -124,6 +124,63 @@ export function TournamentProvider({ children }) {
     fetchData();
   };
 
+  const deleteTeam = async (teamId) => {
+    const res = await fetch(`${API_URL}/teams/${teamId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error);
+    }
+    fetchData();
+  };
+
+  const getRoster = async (teamId) => {
+    const res = await fetch(`${API_URL}/teams/${teamId}/roster`);
+    if (!res.ok) return [];
+    return res.json();
+  };
+
+  const addPlayer = async (teamId, name, email) => {
+    const res = await fetch(`${API_URL}/teams/${teamId}/roster`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ name, email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  };
+
+  const updatePlayer = async (playerId, name, email) => {
+    const res = await fetch(`${API_URL}/roster/${playerId}`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ name, email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  };
+
+  const deletePlayer = async (playerId) => {
+    const res = await fetch(`${API_URL}/roster/${playerId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error);
+    }
+  };
+
   const getStandings = () => {
     const stats = {};
     if (!teams || teams.length === 0) return [];
@@ -179,6 +236,11 @@ export function TournamentProvider({ children }) {
     updateMatchScore,
     addMatch,
     addTeam,
+    deleteTeam,
+    getRoster,
+    addPlayer,
+    updatePlayer,
+    deletePlayer,
     getStandings,
   };
 

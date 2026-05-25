@@ -41,6 +41,16 @@ export function initDatabase() {
       )
     `);
 
+    db.run(`
+      CREATE TABLE IF NOT EXISTS roster (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT,
+        FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+      )
+    `);
+
     // Check if admin user exists, if not create
     db.get('SELECT * FROM users WHERE username = ?', ['admin'], (err, row) => {
       if (!row) {

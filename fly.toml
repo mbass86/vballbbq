@@ -1,0 +1,19 @@
+app = "vballbbq"
+primary_region = "ord"
+
+[build]
+
+[env]
+  PORT = "3001"
+
+[mounts]
+  source = "vball_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]

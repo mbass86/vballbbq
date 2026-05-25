@@ -133,15 +133,95 @@ app.put('/api/matches/:id/score', authenticateToken, (req, res) => {
   });
 });
 
+// Delete a team (admin only, or captain of that team)
+app.delete('/api/teams/:id', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  const isAdmin = req.user.role === 'admin';
+  const isOwnCaptain = req.user.role === 'team_captain' && req.user.team_id === id;
+  if (!isAdmin && !isOwnCaptain) return res.status(403).json({ error: 'Not authorized to delete this team' });
+  // Also delete associated users, roster rows, and matches
+  db.serialize(() => {
+    db.run('DELETE FROM roster WHERE team_id = ?', [id]);
+    db.run('DELETE FROM users WHERE team_id = ?', [id]);
+    db.run('DELETE FROM matches WHERE team1_id = ? OR team2_id = ?', [id, id]);
+    db.run('DELETE FROM teams WHERE id = ?', [id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Team deleted' });
+    });
+  });
+});
+
+// Get roster for a team (public)
+app.get('/api/teams/:id/roster', (req, res) => {
+  db.all('SELECT * FROM roster WHERE team_id = ? ORDER BY name', [req.params.id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Add a player to roster (captain of that team, or admin)
+app.post('/api/teams/:id/roster', authenticateToken, (req, res) => {
+  const teamId = req.params.id;
+  const isAdmin = req.user.role === 'admin';
+  const isOwnCaptain = req.user.role === 'team_captain' && req.user.team_id === teamId;
+  if (!isAdmin && !isOwnCaptain) return res.status(403).json({ error: 'Not authorized' });
+
+  const { name, email } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
+  db.run('INSERT INTO roster (team_id, name, email) VALUES (?, ?, ?)', [teamId, name, email || null], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ id: this.lastID, team_id: teamId, name, email: email || null });
+  });
+});
+
+// Update a roster player (captain of that team, or admin)
+app.put('/api/roster/:playerId', authenticateToken, (req, res) => {
+  const { playerId } = req.params;
+  const { name, email } = req.body;
+
+  db.get('SELECT * FROM roster WHERE id = ?', [playerId], (err, player) => {
+    if (err || !player) return res.status(404).json({ error: 'Player not found' });
+
+    const isAdmin = req.user.role === 'admin';
+    const isOwnCaptain = req.user.role === 'team_captain' && req.user.team_id === player.team_id;
+    if (!isAdmin && !isOwnCaptain) return res.status(403).json({ error: 'Not authorized' });
+
+    db.run('UPDATE roster SET name = ?, email = ? WHERE id = ?', 
+      [name || player.name, email !== undefined ? email : player.email, playerId], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: parseInt(playerId), team_id: player.team_id, name: name || player.name, email: email !== undefined ? email : player.email });
+    });
+  });
+});
+
+// Delete a roster player (captain of that team, or admin)
+app.delete('/api/roster/:playerId', authenticateToken, (req, res) => {
+  const { playerId } = req.params;
+
+  db.get('SELECT * FROM roster WHERE id = ?', [playerId], (err, player) => {
+    if (err || !player) return res.status(404).json({ error: 'Player not found' });
+
+    const isAdmin = req.user.role === 'admin';
+    const isOwnCaptain = req.user.role === 'team_captain' && req.user.team_id === player.team_id;
+    if (!isAdmin && !isOwnCaptain) return res.status(403).json({ error: 'Not authorized' });
+
+    db.run('DELETE FROM roster WHERE id = ?', [playerId], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Player removed' });
+    });
+  });
+});
+
 // Serve frontend static files
 app.use(express.static(path.join(__dirname, '../dist')));
 
 // Catch-all route for React Router
-app.get('*', (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`API Server running on port ${PORT}`);
 });
