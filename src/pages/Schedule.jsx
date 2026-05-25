@@ -15,31 +15,28 @@ function MatchEditForm({ match, teams, onSave, onCancel }) {
     onSave({ team1_id: t1, team2_id: t2, court, time });
   };
 
-  const selectStyle = { padding: '4px 6px', fontSize: '0.82rem', width: '100%' };
-  const inputStyle = { padding: '4px 8px', fontSize: '0.82rem' };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <div>
         <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Team 1</label>
-        <select className="input" style={selectStyle} value={t1} onChange={e => setT1(e.target.value)}>
+        <select className="input" style={{ padding: '4px 6px', fontSize: '0.82rem', width: '100%' }} value={t1} onChange={e => setT1(e.target.value)}>
           {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </div>
       <div>
         <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Team 2</label>
-        <select className="input" style={selectStyle} value={t2} onChange={e => setT2(e.target.value)}>
+        <select className="input" style={{ padding: '4px 6px', fontSize: '0.82rem', width: '100%' }} value={t2} onChange={e => setT2(e.target.value)}>
           {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <div style={{ flex: 1 }}>
           <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Court</label>
-          <input className="input" style={inputStyle} value={court} onChange={e => setCourt(e.target.value)} />
+          <input className="input" style={{ padding: '4px 8px', fontSize: '0.82rem' }} value={court} onChange={e => setCourt(e.target.value)} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Time</label>
-          <input className="input" style={inputStyle} value={time} onChange={e => setTime(e.target.value)} />
+          <input className="input" style={{ padding: '4px 8px', fontSize: '0.82rem' }} value={time} onChange={e => setTime(e.target.value)} />
         </div>
       </div>
       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
@@ -60,7 +57,7 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
   const [courts, setCourts] = useState(8);
   const [rounds, setRounds] = useState(4);
   const [startTime, setStartTime] = useState('10:00');
-  const [interval, setInterval] = useState(60);
+  const [interval, setIntervalMin] = useState(60);
   const [loading, setLoading] = useState(false);
 
   const handleGenerate = async () => {
@@ -100,7 +97,6 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '14px', marginBottom: '16px' }}>
             Generate a round-robin schedule randomly distributed across teams. Each round fills all available courts simultaneously.
           </p>
-
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
             <div>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Courts</label>
@@ -116,28 +112,17 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
             </div>
             <div>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Interval (min)</label>
-              <input className="input" type="number" min="15" max="240" step="15" value={interval} onChange={e => setInterval(e.target.value)} style={{ padding: '6px 10px' }} />
+              <input className="input" type="number" min="15" max="240" step="15" value={interval} onChange={e => setIntervalMin(e.target.value)} style={{ padding: '6px 10px' }} />
             </div>
           </div>
-
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              className="btn btn-primary"
-              onClick={handleGenerate}
-              disabled={loading || teams.length < 2}
-              style={{ fontSize: '0.85rem' }}
-            >
+            <button className="btn btn-primary" onClick={handleGenerate} disabled={loading || teams.length < 2} style={{ fontSize: '0.85rem' }}>
               <Shuffle size={15} /> {loading ? 'Generating...' : 'Generate Schedule'}
             </button>
-            <button
-              className="btn"
-              onClick={handleClear}
-              style={{ fontSize: '0.85rem', background: 'rgba(255,77,109,0.1)', color: '#ff4d6d', border: '1px solid #ff4d6d' }}
-            >
+            <button className="btn" onClick={handleClear} style={{ fontSize: '0.85rem', background: 'rgba(255,77,109,0.1)', color: '#ff4d6d', border: '1px solid #ff4d6d' }}>
               <CalendarX size={15} /> Clear All Matches
             </button>
           </div>
-
           {teams.length < 2 && (
             <p style={{ color: '#ff4d6d', fontSize: '0.82rem', marginTop: '10px' }}>⚠ Need at least 2 registered teams to generate a schedule.</p>
           )}
@@ -149,21 +134,22 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
 
 export default function Schedule() {
   const { matches, teams, updateMatchScore, updateMatch, deleteMatch, clearSchedule, generateSchedule, user } = useTournament();
-  const [viewMode, setViewMode] = useState('all');
+  const [tab, setTab] = useState('upcoming'); // 'upcoming' | 'results' | 'all'
+  const [myTeamOnly, setMyTeamOnly] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState(null);
 
   const isAdmin = user?.role === 'admin';
+  const isCaptain = user?.role === 'team_captain';
 
-  const getTeamName = (teamId) => {
-    const team = teams.find(t => t.id === teamId);
-    return team ? team.name : 'Unknown Team';
-  };
+  const getTeamName = (teamId) => teams.find(t => t.id === teamId)?.name ?? 'Unknown';
 
   const isAuthorized = (match) => {
     if (!user) return false;
-    if (user.role === 'admin') return true;
+    if (isAdmin) return true;
     return user.team_id === match.team1_id || user.team_id === match.team2_id;
   };
+
+  const isCompleted = (m) => m.score1 !== null && m.score2 !== null;
 
   const handleScoreChange = (matchId, teamNum, value) => {
     const numericValue = value === '' ? null : parseInt(value, 10);
@@ -184,61 +170,70 @@ export default function Schedule() {
 
   const handleDeleteMatch = async (matchId) => {
     if (!window.confirm('Remove this match from the schedule?')) return;
-    try {
-      await deleteMatch(matchId);
-    } catch (err) {
-      alert(err.message);
-    }
+    try { await deleteMatch(matchId); } catch (err) { alert(err.message); }
   };
 
-  const displayedMatches = (viewMode === 'my' && user?.team_id)
-    ? matches.filter(m => m.team1_id === user.team_id || m.team2_id === user.team_id)
-    : matches;
+  // Filter by tab first, then optionally by my team
+  let filtered = matches.filter(m => {
+    if (tab === 'upcoming') return !isCompleted(m);
+    if (tab === 'results') return isCompleted(m);
+    return true;
+  });
+  if (myTeamOnly && user?.team_id) {
+    filtered = filtered.filter(m => m.team1_id === user.team_id || m.team2_id === user.team_id);
+  }
 
-  // Group by time, preserve insertion order
-  const matchesByTime = displayedMatches.reduce((acc, match) => {
+  // Group by time
+  const matchesByTime = filtered.reduce((acc, match) => {
     if (!acc[match.time]) acc[match.time] = [];
     acc[match.time].push(match);
     return acc;
   }, {});
 
+  const tabBtn = (value, label) => (
+    <button
+      className={`btn ${tab === value ? 'btn-primary' : 'btn-secondary'}`}
+      onClick={() => setTab(value)}
+      style={{ fontSize: '0.85rem' }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="page-container animate-fade-in stagger-1">
       <div className="page-header">
         <h1 className="title-gradient">Match Schedule & Scoring</h1>
-        <p className="subtitle">Scores can only be updated by Team Captains involved in the match or Administrators.</p>
+        <p className="subtitle">Scores can be updated by Team Captains involved in the match or Administrators.</p>
       </div>
 
-      {/* Admin schedule management panel */}
       {isAdmin && (
-        <AdminSchedulePanel
-          teams={teams}
-          clearSchedule={clearSchedule}
-          generateSchedule={generateSchedule}
-        />
+        <AdminSchedulePanel teams={teams} clearSchedule={clearSchedule} generateSchedule={generateSchedule} />
       )}
 
-      {/* My matches filter for captains */}
-      {user?.team_id && user.role !== 'admin' && (
-        <div className="flex gap-4">
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '8px' }}>
+        {tabBtn('upcoming', '📅 Upcoming')}
+        {tabBtn('results', '🏆 Results')}
+        {tabBtn('all', 'All Matches')}
+
+        {/* My team toggle for captains */}
+        {(isCaptain) && user?.team_id && (
           <button
-            className={`btn ${viewMode === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setViewMode('all')}
+            className={`btn ${myTeamOnly ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setMyTeamOnly(v => !v)}
+            style={{ fontSize: '0.85rem', marginLeft: '12px' }}
           >
-            All Matches
+            {myTeamOnly ? '✓ My Team Only' : 'My Team Only'}
           </button>
-          <button
-            className={`btn ${viewMode === 'my' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setViewMode('my')}
-          >
-            My Team's Matches
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {Object.keys(matchesByTime).length === 0 && (
         <div className="glass-panel text-center" style={{ padding: '40px', color: 'var(--text-secondary)' }}>
-          {isAdmin ? 'No matches scheduled. Use the Admin tools above to generate a schedule.' : 'No matches found.'}
+          {tab === 'upcoming' && 'No upcoming matches. All games may have been completed!'}
+          {tab === 'results' && 'No completed matches yet.'}
+          {tab === 'all' && (isAdmin ? 'No matches. Use the Admin tools above to generate a schedule.' : 'No matches found.')}
         </div>
       )}
 
@@ -246,12 +241,13 @@ export default function Schedule() {
         <div key={time} className={`mt-6 animate-fade-in stagger-${(index % 3) + 1}`}>
           <h2 className="flex items-center gap-2 mb-4" style={{ marginBottom: '16px' }}>
             <Clock size={20} className="accent-blue" />
-            Time: {time}
+            {time}
           </h2>
 
           <div className="matches-grid">
             {timeMatches.map(match => {
               const auth = isAuthorized(match);
+              const completed = isCompleted(match);
               const isEditing = editingMatchId === match.id;
 
               return (
@@ -270,59 +266,45 @@ export default function Schedule() {
                           <MapPin size={14} /> {match.court}
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {match.score1 !== null && match.score2 !== null ? (
-                            <span className="accent-success font-bold text-xs" style={{ fontSize: '0.8rem' }}>COMPLETED</span>
+                          {completed ? (
+                            <span className="accent-success font-bold" style={{ fontSize: '0.8rem' }}>COMPLETED</span>
                           ) : (
                             !auth && <span className="text-secondary" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}><Lock size={12} /> Locked</span>
                           )}
                           {isAdmin && (
                             <div style={{ display: 'flex', gap: '4px' }}>
-                              <button
-                                onClick={() => setEditingMatchId(match.id)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px' }}
-                                title="Edit match"
-                              ><Pencil size={13} /></button>
-                              <button
-                                onClick={() => handleDeleteMatch(match.id)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff4d6d', padding: '2px' }}
-                                title="Delete match"
-                              ><Trash2 size={13} /></button>
+                              <button onClick={() => setEditingMatchId(match.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px' }} title="Edit match">
+                                <Pencil size={13} />
+                              </button>
+                              <button onClick={() => handleDeleteMatch(match.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff4d6d', padding: '2px' }} title="Delete match">
+                                <Trash2 size={13} />
+                              </button>
                             </div>
                           )}
                         </div>
                       </div>
 
                       <div className="team-row">
-                        <span className="team-name">{getTeamName(match.team1_id)}</span>
+                        <span className="team-name" style={completed && match.score1 > match.score2 ? { color: 'var(--accent-blue)' } : {}}>
+                          {getTeamName(match.team1_id)}
+                        </span>
                         {auth ? (
-                          <input
-                            type="number"
-                            className="input score-input"
-                            value={match.score1 === null ? '' : match.score1}
-                            onChange={(e) => handleScoreChange(match.id, 1, e.target.value)}
-                            placeholder="-"
-                            min="0"
-                          />
+                          <input type="number" className="input score-input" value={match.score1 === null ? '' : match.score1} onChange={(e) => handleScoreChange(match.id, 1, e.target.value)} placeholder="-" min="0" />
                         ) : (
-                          <span className="score-input" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
+                          <span className="score-input" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', fontWeight: completed ? 700 : 400 }}>
                             {match.score1 === null ? '-' : match.score1}
                           </span>
                         )}
                       </div>
 
                       <div className="team-row">
-                        <span className="team-name">{getTeamName(match.team2_id)}</span>
+                        <span className="team-name" style={completed && match.score2 > match.score1 ? { color: 'var(--accent-blue)' } : {}}>
+                          {getTeamName(match.team2_id)}
+                        </span>
                         {auth ? (
-                          <input
-                            type="number"
-                            className="input score-input"
-                            value={match.score2 === null ? '' : match.score2}
-                            onChange={(e) => handleScoreChange(match.id, 2, e.target.value)}
-                            placeholder="-"
-                            min="0"
-                          />
+                          <input type="number" className="input score-input" value={match.score2 === null ? '' : match.score2} onChange={(e) => handleScoreChange(match.id, 2, e.target.value)} placeholder="-" min="0" />
                         ) : (
-                          <span className="score-input" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)' }}>
+                          <span className="score-input" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', fontWeight: completed ? 700 : 400 }}>
                             {match.score2 === null ? '-' : match.score2}
                           </span>
                         )}
