@@ -111,6 +111,48 @@ export function TournamentProvider({ children }) {
     fetchData();
   };
 
+  const deleteMatch = async (matchId) => {
+    const res = await fetch(`${API_URL}/matches/${matchId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    setMatches(prev => prev.filter(m => m.id !== matchId));
+  };
+
+  const updateMatch = async (matchId, fields) => {
+    const res = await fetch(`${API_URL}/matches/${matchId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(fields)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    setMatches(prev => prev.map(m => m.id === matchId ? data : m));
+    return data;
+  };
+
+  const clearSchedule = async () => {
+    const res = await fetch(`${API_URL}/matches`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    setMatches([]);
+  };
+
+  const generateSchedule = async (opts) => {
+    const res = await fetch(`${API_URL}/schedule/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(opts)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    setMatches(data);
+    return data;
+  };
+
   const addTeam = async (name) => {
     // Only Admin
     const res = await fetch(`${API_URL}/teams`, {
@@ -235,6 +277,10 @@ export function TournamentProvider({ children }) {
     logout,
     updateMatchScore,
     addMatch,
+    deleteMatch,
+    updateMatch,
+    clearSchedule,
+    generateSchedule,
     addTeam,
     deleteTeam,
     getRoster,

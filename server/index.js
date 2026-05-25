@@ -133,6 +133,113 @@ app.put('/api/matches/:id/score', authenticateToken, (req, res) => {
   });
 });
 
+// Update match details (admin: teams, court, time)
+app.put('/api/matches/:id', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+  const { id } = req.params;
+  const { team1_id, team2_id, court, time } = req.body;
+
+  db.get('SELECT * FROM matches WHERE id = ?', [id], (err, match) => {
+    if (err || !match) return res.status(404).json({ error: 'Match not found' });
+    db.run(
+      'UPDATE matches SET team1_id = ?, team2_id = ?, court = ?, time = ? WHERE id = ?',
+      [team1_id ?? match.team1_id, team2_id ?? match.team2_id, court ?? match.court, time ?? match.time, id],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id, team1_id: team1_id ?? match.team1_id, team2_id: team2_id ?? match.team2_id, court: court ?? match.court, time: time ?? match.time, score1: match.score1, score2: match.score2 });
+      }
+    );
+  });
+});
+
+// Delete a single match (admin)
+app.delete('/api/matches/:id', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+  db.run('DELETE FROM matches WHERE id = ?', [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Match deleted' });
+  });
+});
+
+// Delete all matches (admin)
+app.delete('/api/matches', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+  db.run('DELETE FROM matches', [], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'All matches deleted' });
+  });
+});
+
+// Generate schedule (admin)
+app.post('/api/schedule/generate', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+
+  const { courts, startTime, intervalMinutes, rounds } = req.body;
+  if (!courts || courts < 1) return res.status(400).json({ error: 'courts must be >= 1' });
+
+  db.all('SELECT * FROM teams', [], (err, teams) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (teams.length < 2) return res.status(400).json({ error: 'Need at least 2 teams' });
+
+    // Shuffle teams randomly
+    const shuffled = [...teams].sort(() => Math.random() - 0.5);
+    // Pad to even number with null (bye)
+    if (shuffled.length % 2 !== 0) shuffled.push(null);
+    const n = shuffled.length;
+
+    // Build time slots
+    const numRounds = rounds || (n - 1);
+    const interval = intervalMinutes || 60;
+    const [startH, startM] = (startTime || '10:00').split(':').map(Number);
+
+    const timeSlots = Array.from({ length: numRounds }, (_, i) => {
+      const totalMin = startH * 60 + startM + i * interval;
+      const h = Math.floor(totalMin / 60) % 24;
+      const m = totalMin % 60;
+      const suffix = h < 12 ? 'AM' : 'PM';
+      const displayH = h % 12 === 0 ? 12 : h % 12;
+      return `${displayH}:${String(m).padStart(2, '0')} ${suffix}`;
+    });
+
+    // Generate round-robin using rotation algorithm
+    const list = [...shuffled];
+    const matches = [];
+
+    for (let round = 0; round < numRounds; round++) {
+      const roundPairs = [];
+      for (let i = 0; i < n / 2; i++) {
+        const t1 = list[i];
+        const t2 = list[n - 1 - i];
+        if (t1 && t2) roundPairs.push({ t1, t2 });
+      }
+      // Limit to available courts
+      roundPairs.slice(0, courts).forEach((pair, idx) => {
+        matches.push({
+          id: `g-${Date.now()}-${round}-${idx}`,
+          team1_id: pair.t1.id,
+          team2_id: pair.t2.id,
+          court: `Court ${idx + 1}`,
+          time: timeSlots[round]
+        });
+      });
+      // Rotate: keep element 0 fixed, rotate the rest
+      const last = list.pop();
+      list.splice(1, 0, last);
+    }
+
+    // Clear existing matches then insert new ones
+    db.run('DELETE FROM matches', [], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const stmt = db.prepare('INSERT INTO matches (id, team1_id, team2_id, court, time) VALUES (?, ?, ?, ?, ?)');
+      matches.forEach(m => stmt.run(m.id, m.team1_id, m.team2_id, m.court, m.time));
+      stmt.finalize((err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(matches);
+      });
+    });
+  });
+});
+
 // Delete a team (admin only, or captain of that team)
 app.delete('/api/teams/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
