@@ -327,6 +327,7 @@ app.delete('/api/roster/:playerId', authenticateToken, (req, res) => {
       res.json({ message: 'Player removed' });
     });
   });
+});
 
 // Configure mail transporter dynamically
 function getMailTransporter() {
