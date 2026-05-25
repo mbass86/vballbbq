@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import db, { initDatabase } from './database.js';
+import nodemailer from 'nodemailer';
+import cron from 'node-cron';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,7 +36,7 @@ function authenticateToken(req, res, next) {
 
 // Routes
 app.post('/api/auth/register', (req, res) => {
-  const { username, password, teamName } = req.body;
+  const { username, password, teamName, email } = req.body;
   
   const hash = bcrypt.hashSync(password, 10);
   const teamId = Date.now().toString();
@@ -43,8 +45,8 @@ app.post('/api/auth/register', (req, res) => {
     db.run('INSERT INTO teams (id, name) VALUES (?, ?)', [teamId, teamName], function(err) {
       if (err) return res.status(400).json({ error: 'Team name error' });
       
-      db.run('INSERT INTO users (username, password_hash, role, team_id) VALUES (?, ?, ?, ?)', 
-        [username, hash, 'team_captain', teamId], function(err) {
+      db.run('INSERT INTO users (username, password_hash, role, team_id, email) VALUES (?, ?, ?, ?, ?)', 
+        [username, hash, 'team_captain', teamId, email || null], function(err) {
           if (err) return res.status(400).json({ error: 'Username already exists' });
           res.json({ message: 'User registered successfully', teamId });
       });
@@ -68,7 +70,14 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.get('/api/teams', (req, res) => {
-  db.all('SELECT * FROM teams', [], (err, rows) => {
+  const query = `
+    SELECT t.id, t.name, u.email AS captain_email, COUNT(r.id) AS player_count
+    FROM teams t
+    LEFT JOIN users u ON u.team_id = t.id AND u.role = 'team_captain'
+    LEFT JOIN roster r ON r.team_id = t.id
+    GROUP BY t.id, t.name, u.email
+  `;
+  db.all(query, [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
@@ -318,6 +327,109 @@ app.delete('/api/roster/:playerId', authenticateToken, (req, res) => {
       res.json({ message: 'Player removed' });
     });
   });
+
+// Configure mail transporter dynamically
+function getMailTransporter() {
+  const host = process.env.SMTP_HOST;
+  const port = parseInt(process.env.SMTP_PORT || '587');
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !user || !pass) {
+    console.warn('SMTP environment variables not fully configured. Email reminders will be dry-run (logged only).');
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass }
+  });
+}
+
+function sendWeeklyReminders(manualRecipient = null) {
+  const query = `
+    SELECT t.name as team_name, u.email as captain_email, COUNT(r.id) as player_count
+    FROM teams t
+    LEFT JOIN users u ON u.team_id = t.id AND u.role = 'team_captain'
+    LEFT JOIN roster r ON r.team_id = t.id
+    GROUP BY t.id, t.name, u.email
+  `;
+
+  db.all(query, [], async (err, rows) => {
+    if (err) {
+      console.error('Failed to query teams for reminders:', err);
+      return;
+    }
+
+    const incompleteTeams = rows.filter(row => row.player_count < 4);
+
+    if (incompleteTeams.length === 0) {
+      console.log('No incomplete teams found to remind.');
+      return;
+    }
+
+    const transporter = getMailTransporter();
+
+    for (const team of incompleteTeams) {
+      const recipient = manualRecipient || team.captain_email;
+      if (!recipient) {
+        console.log(`Skipping team ${team.team_name} because no captain email is configured.`);
+        continue;
+      }
+
+      const mailOptions = {
+        from: process.env.SMTP_FROM || '"VolleyFest" <no-reply@vballbbq.com>',
+        to: recipient,
+        subject: `⚠️ Action Required: Complete your roster for ${team.team_name}!`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #e53e3e; margin-top: 0;">Your roster is incomplete!</h2>
+            <p>Hello Captain,</p>
+            <p>This is a reminder that your team <strong>${team.team_name}</strong> currently only has <strong>${team.player_count}</strong> players registered.</p>
+            <p style="font-size: 16px; font-weight: bold; color: #2d3748; background-color: #fffaf0; padding: 10px; border-left: 4px solid #dd6b20; border-radius: 4px;">
+              A complete team requires at least <strong>4 players</strong>.
+            </p>
+            <p>The VolleyFest tournament is scheduled for <strong>June 18th this year</strong>. Please log in and complete your team's roster before the tournament starts to secure your spot.</p>
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+            <p style="font-size: 12px; color: #718096; text-align: center;">If you have already completed your roster or received this in error, please disregard this email.</p>
+          </div>
+        `
+      };
+
+      try {
+        if (transporter) {
+          await transporter.sendMail(mailOptions);
+          console.log(`[EMAIL] Sent reminder to ${recipient} for team ${team.team_name}`);
+        } else {
+          console.log(`[EMAIL DRY-RUN] Roster reminder for ${team.team_name} to ${recipient}: ${team.player_count}/4 players.`);
+        }
+      } catch (sendErr) {
+        console.error(`Failed to send email to ${recipient}:`, sendErr);
+      }
+    }
+  });
+}
+
+// Schedule weekly reminder (Every Sunday at 9:00 AM)
+cron.schedule('0 9 * * 0', () => {
+  const today = new Date();
+  const tournamentDate = new Date('2026-06-18');
+  if (today < tournamentDate) {
+    console.log('Running scheduled weekly roster reminders...');
+    sendWeeklyReminders();
+  } else {
+    console.log('Tournament date has passed, skipping weekly reminders.');
+  }
+});
+
+// Admin endpoint to manually trigger reminders
+app.post('/api/admin/send-reminders', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+  const { testEmail } = req.body;
+  sendWeeklyReminders(testEmail || null);
+  res.json({ message: 'Reminder process triggered successfully' });
 });
 
 // Serve frontend static files

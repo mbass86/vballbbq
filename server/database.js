@@ -22,6 +22,11 @@ export function initDatabase() {
       )
     `);
 
+    // Safe migration to add email column to users table
+    db.run('ALTER TABLE users ADD COLUMN email TEXT', (err) => {
+      // Ignore if column already exists
+    });
+
     db.run(`
       CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY,

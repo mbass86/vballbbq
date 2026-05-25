@@ -52,11 +52,11 @@ export function TournamentProvider({ children }) {
     localStorage.setItem('vball_user', JSON.stringify(data.user));
   };
   
-  const register = async (username, password, teamName) => {
+  const register = async (username, password, teamName, email) => {
     const res = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, teamName })
+      body: JSON.stringify({ username, password, teamName, email })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -195,6 +195,7 @@ export function TournamentProvider({ children }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
+    fetchData();
     return data;
   };
 
@@ -209,6 +210,7 @@ export function TournamentProvider({ children }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
+    fetchData();
     return data;
   };
 
@@ -221,8 +223,21 @@ export function TournamentProvider({ children }) {
       const data = await res.json();
       throw new Error(data.error);
     }
+    fetchData();
   };
-
+  const sendReminders = async (testEmail = null) => {
+    const res = await fetch(`${API_URL}/admin/send-reminders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ testEmail })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  };
   const getStandings = () => {
     const stats = {};
     if (!teams || teams.length === 0) return [];
@@ -288,6 +303,7 @@ export function TournamentProvider({ children }) {
     updatePlayer,
     deletePlayer,
     getStandings,
+    sendReminders,
   };
 
   return (

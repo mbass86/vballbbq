@@ -52,13 +52,45 @@ function MatchEditForm({ match, teams, onSave, onCancel }) {
 }
 
 // Admin schedule tools panel
-function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
+function AdminSchedulePanel({ teams, clearSchedule, generateSchedule, addMatch }) {
   const [open, setOpen] = useState(false);
   const [courts, setCourts] = useState(8);
   const [rounds, setRounds] = useState(4);
   const [startTime, setStartTime] = useState('10:00');
   const [interval, setIntervalMin] = useState(60);
   const [loading, setLoading] = useState(false);
+
+  // Add single match state
+  const [addOpen, setAddOpen] = useState(false);
+  const [newT1, setNewT1] = useState('');
+  const [newT2, setNewT2] = useState('');
+  const [newCourt, setNewCourt] = useState('Court 1');
+  const [newTime, setNewTime] = useState('');
+  const [addLoading, setAddLoading] = useState(false);
+
+  // Pre-select first two teams when panel opens
+  const openAdd = () => {
+    if (teams.length >= 1) setNewT1(teams[0].id);
+    if (teams.length >= 2) setNewT2(teams[1].id);
+    setAddOpen(true);
+  };
+
+  const handleAddMatch = async (e) => {
+    e.preventDefault();
+    if (!newT1 || !newT2) { alert('Select both teams'); return; }
+    if (newT1 === newT2) { alert('Teams must be different'); return; }
+    if (!newTime.trim()) { alert('Enter a time'); return; }
+    setAddLoading(true);
+    try {
+      await addMatch({ team1_id: newT1, team2_id: newT2, court: newCourt, time: newTime });
+      setAddOpen(false);
+      setNewCourt('Court 1');
+      setNewTime('');
+    } catch (err) {
+      alert(err.message);
+    }
+    setAddLoading(false);
+  };
 
   const handleGenerate = async () => {
     if (!window.confirm(`This will DELETE the current schedule and generate a new random one with ${courts} courts, ${rounds} rounds. Continue?`)) return;
@@ -126,6 +158,54 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
           {teams.length < 2 && (
             <p style={{ color: '#ff4d6d', fontSize: '0.82rem', marginTop: '10px' }}>⚠ Need at least 2 registered teams to generate a schedule.</p>
           )}
+
+          {/* Add single match */}
+          <div style={{ marginTop: '20px', borderTop: '1px solid var(--glass-border)', paddingTop: '16px' }}>
+            {!addOpen ? (
+              <button
+                className="btn"
+                onClick={openAdd}
+                disabled={teams.length < 2}
+                style={{ fontSize: '0.85rem', background: 'rgba(0,210,255,0.08)', color: 'var(--accent-blue)', border: '1px solid var(--accent-blue)' }}
+              >
+                + Add Single Match
+              </button>
+            ) : (
+              <form onSubmit={handleAddMatch}>
+                <p style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '12px', color: 'var(--accent-blue)' }}>Add Single Match</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Team 1</label>
+                    <select className="input" style={{ padding: '6px 8px', fontSize: '0.85rem', width: '100%' }} value={newT1} onChange={e => setNewT1(e.target.value)}>
+                      {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Team 2</label>
+                    <select className="input" style={{ padding: '6px 8px', fontSize: '0.85rem', width: '100%' }} value={newT2} onChange={e => setNewT2(e.target.value)}>
+                      {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Court</label>
+                    <input className="input" style={{ padding: '6px 10px', fontSize: '0.85rem' }} value={newCourt} onChange={e => setNewCourt(e.target.value)} placeholder="Court 1" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Time</label>
+                    <input className="input" style={{ padding: '6px 10px', fontSize: '0.85rem' }} value={newTime} onChange={e => setNewTime(e.target.value)} placeholder="e.g. 11:00 AM" required />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="submit" className="btn btn-primary" style={{ fontSize: '0.85rem' }} disabled={addLoading}>
+                    <Check size={14} /> {addLoading ? 'Adding...' : 'Add Match'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" style={{ fontSize: '0.85rem' }} onClick={() => setAddOpen(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -133,7 +213,7 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule }) {
 }
 
 export default function Schedule() {
-  const { matches, teams, updateMatchScore, updateMatch, deleteMatch, clearSchedule, generateSchedule, user } = useTournament();
+  const { matches, teams, updateMatchScore, updateMatch, deleteMatch, clearSchedule, generateSchedule, addMatch, user } = useTournament();
   const [tab, setTab] = useState('upcoming'); // 'upcoming' | 'results' | 'all'
   const [myTeamOnly, setMyTeamOnly] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState(null);
@@ -208,7 +288,7 @@ export default function Schedule() {
       </div>
 
       {isAdmin && (
-        <AdminSchedulePanel teams={teams} clearSchedule={clearSchedule} generateSchedule={generateSchedule} />
+        <AdminSchedulePanel teams={teams} clearSchedule={clearSchedule} generateSchedule={generateSchedule} addMatch={addMatch} />
       )}
 
       {/* Tab bar */}

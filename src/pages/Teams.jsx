@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTournament } from '../store/TournamentContext';
-import { Users, Plus, Trash2, ChevronDown, ChevronUp, UserPlus, Mail, Pencil, Check, X } from 'lucide-react';
+import { Users, Plus, Trash2, ChevronDown, ChevronUp, UserPlus, Mail, Pencil, Check, X, ShieldAlert } from 'lucide-react';
 import './Pages.css';
 
 function RosterPanel({ team, user, getRoster, addPlayer, updatePlayer, deletePlayer }) {
@@ -199,8 +199,101 @@ function RosterPanel({ team, user, getRoster, addPlayer, updatePlayer, deletePla
   );
 }
 
+function AdminRemindersPanel({ incompleteTeams, sendReminders }) {
+  const [sending, setSending] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [showTest, setShowTest] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const handleSend = async (email = null) => {
+    setSending(true);
+    try {
+      await sendReminders(email);
+      alert(email ? `Test email triggered successfully to ${email}!` : 'Roster reminders sent to all incomplete team captains!');
+      setTestEmail('');
+      setShowTest(false);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="glass-panel" style={{ borderLeft: '4px solid #dd6b20', background: 'rgba(221, 107, 32, 0.05)', padding: '16px 20px', marginBottom: '20px', borderRadius: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+        <div style={{ flex: 1 }}>
+          <h4 style={{ color: '#dd6b20', margin: 0, fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldAlert size={18} /> {incompleteTeams.length} Incomplete Teams Detected
+          </h4>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            These teams have fewer than the required 4 players. You can notify them manually or wait for the automatic weekly email process.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button 
+            className="btn btn-secondary" 
+            style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Hide List' : 'Show List'}
+          </button>
+          <button 
+            className="btn btn-primary" 
+            style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#dd6b20', borderColor: '#dd6b20' }}
+            onClick={() => handleSend(null)}
+            disabled={sending}
+          >
+            Send Reminders
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+            onClick={() => setShowTest(!showTest)}
+          >
+            Test Email
+          </button>
+        </div>
+      </div>
+
+      {showTest && (
+        <div style={{ marginTop: '12px', padding: '12px 0 0 0', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input 
+            type="email" 
+            className="input" 
+            placeholder="Recipient email..." 
+            value={testEmail} 
+            onChange={e => setTestEmail(e.target.value)} 
+            style={{ padding: '6px 10px', fontSize: '0.82rem', flex: '1 1 200px' }}
+          />
+          <button 
+            className="btn btn-primary" 
+            style={{ padding: '6px 14px', fontSize: '0.82rem' }}
+            onClick={() => handleSend(testEmail)}
+            disabled={sending || !testEmail.trim()}
+          >
+            Send Test
+          </button>
+        </div>
+      )}
+
+      {expanded && (
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {incompleteTeams.map(t => (
+              <li key={t.id} style={{ color: 'var(--text-secondary)' }}>
+                <strong>{t.name}</strong> — {t.player_count || 0}/4 players {t.captain_email ? `(Captain: ${t.captain_email})` : '(No Captain Email)'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Teams() {
-  const { teams, addTeam, deleteTeam, getRoster, addPlayer, updatePlayer, deletePlayer, user, logout } = useTournament();
+  const { teams, addTeam, deleteTeam, getRoster, addPlayer, updatePlayer, deletePlayer, sendReminders, user, logout } = useTournament();
   const [newTeamName, setNewTeamName] = useState('');
   const [expandedTeam, setExpandedTeam] = useState(null);
 
@@ -237,14 +330,33 @@ export default function Teams() {
     setExpandedTeam(prev => prev === teamId ? null : teamId);
   };
 
+  const myTeam = teams.find(t => t.id === user?.team_id);
+  const isMyTeamIncomplete = myTeam && (myTeam.player_count || 0) < 4;
+  const incompleteTeams = teams.filter(t => (t.player_count || 0) < 4);
+
   return (
     <div className="page-container animate-fade-in stagger-2">
-      <div className="page-header flex justify-between items-center">
+      <div className="page-header flex justify-between items-center" style={{ marginBottom: '20px' }}>
         <div>
           <h1 className="title-gradient">Teams & Rosters</h1>
           <p className="subtitle">View teams and their registered players</p>
         </div>
       </div>
+
+      {isCaptain && isMyTeamIncomplete && (
+        <div className="glass-panel" style={{ borderLeft: '4px solid #ff4d6d', background: 'rgba(255, 77, 109, 0.06)', padding: '16px 20px', marginBottom: '20px', borderRadius: '8px' }}>
+          <h4 className="accent-magenta font-bold flex items-center gap-2" style={{ margin: 0, fontSize: '0.95rem' }}>
+            ⚠️ Roster Incomplete!
+          </h4>
+          <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Your team <strong>{myTeam.name}</strong> currently only has <strong>{myTeam.player_count || 0}/4</strong> players. A minimum of 4 players is required to play. Please expand your roster below before the tournament on <strong>June 18th</strong>.
+          </p>
+        </div>
+      )}
+
+      {isAdmin && incompleteTeams.length > 0 && (
+        <AdminRemindersPanel incompleteTeams={incompleteTeams} sendReminders={sendReminders} />
+      )}
 
       <div className="flex gap-6 mt-6" style={{ flexWrap: 'wrap' }}>
         {isAdmin && (
@@ -271,13 +383,22 @@ export default function Teams() {
           {teams.map(team => {
             const isExpanded = expandedTeam === team.id;
             const isMyTeam = user?.team_id === team.id;
-            const canSeePlayers = isAdmin || isCaptain;
+            const isIncomplete = (team.player_count || 0) < 4;
 
             return (
               <div
                 key={team.id}
                 className="glass-panel"
-                style={{ padding: 0, overflow: 'hidden', border: isMyTeam ? '1px solid var(--accent-blue)' : undefined }}
+                style={{ 
+                  padding: 0, 
+                  overflow: 'hidden', 
+                  border: isMyTeam 
+                    ? '1px solid var(--accent-blue)' 
+                    : isIncomplete 
+                      ? '1px solid rgba(255, 77, 109, 0.4)' 
+                      : undefined,
+                  boxShadow: isIncomplete ? '0 0 15px rgba(255, 77, 109, 0.05)' : undefined
+                }}
               >
                 {/* Team Header Row */}
                 <div
@@ -291,10 +412,15 @@ export default function Teams() {
                   }}
                   onClick={() => toggleExpand(team.id)}
                 >
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span className="font-bold" style={{ fontSize: '1rem' }}>{team.name}</span>
                     {isMyTeam && (
-                      <span className="accent-blue font-bold ml-2" style={{ fontSize: '0.7rem', verticalAlign: 'middle' }}>YOUR TEAM</span>
+                      <span className="accent-blue font-bold" style={{ fontSize: '0.7rem' }}>YOUR TEAM</span>
+                    )}
+                    {isIncomplete && (
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(255, 77, 109, 0.1)', color: '#ff4d6d', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(255,77,109,0.2)', fontWeight: '600' }}>
+                        ⚠️ Roster Incomplete ({team.player_count || 0}/4)
+                      </span>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

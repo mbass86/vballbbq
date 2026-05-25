@@ -12,6 +12,7 @@ export default function Layout() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
 
   const handleAuth = async (e) => {
@@ -21,7 +22,7 @@ export default function Layout() {
       if (isLogin) {
         await login(username, password);
       } else {
-        await register(username, password, teamName);
+        await register(username, password, teamName, email);
         setIsLogin(true);
         setError('Registered successfully, please log in.');
       }
@@ -29,6 +30,7 @@ export default function Layout() {
         setShowAuth(false);
         setUsername('');
         setPassword('');
+        setEmail('');
       }
     } catch (err) {
       setError(err.message);
@@ -94,6 +96,7 @@ export default function Layout() {
               {!isLogin && (
                 <div className="flex-col gap-2">
                   <input required placeholder="New Team Name" className="input" value={teamName} onChange={e => setTeamName(e.target.value)} />
+                  <input required type="email" placeholder="Captain's Email" className="input" value={email} onChange={e => setEmail(e.target.value)} />
                 </div>
               )}
               
