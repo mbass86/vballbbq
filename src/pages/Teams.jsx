@@ -200,7 +200,7 @@ function RosterPanel({ team, user, getRoster, addPlayer, updatePlayer, deletePla
 }
 
 export default function Teams() {
-  const { teams, addTeam, deleteTeam, getRoster, addPlayer, updatePlayer, deletePlayer, user } = useTournament();
+  const { teams, addTeam, deleteTeam, getRoster, addPlayer, updatePlayer, deletePlayer, user, logout } = useTournament();
   const [newTeamName, setNewTeamName] = useState('');
   const [expandedTeam, setExpandedTeam] = useState(null);
 
@@ -224,6 +224,10 @@ export default function Teams() {
     if (!window.confirm(`Delete "${team.name}" and all their matches? This cannot be undone.`)) return;
     try {
       await deleteTeam(team.id);
+      // If a captain deleted their own team, their account was also removed — log them out
+      if (user?.role === 'team_captain') {
+        logout();
+      }
     } catch (err) {
       alert(err.message);
     }
