@@ -192,24 +192,80 @@ app.post('/api/schedule/generate', authenticateToken, (req, res) => {
 
     // Shuffle teams randomly
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
-    const originalCount = shuffled.length;
-    const isOdd = originalCount % 2 !== 0;
+    const T = shuffled.length;
 
-    // Pad to even number with null (bye) for the circle rotation
-    if (isOdd) shuffled.push(null);
-    const n = shuffled.length;
+    // How many games should each team play?
+    let gamesPerTeam = parseInt(rounds) || 4; // default to 4 games per team
+    if (T % 2 !== 0) {
+      // If T is odd, each team MUST play an even number of games.
+      // So round gamesPerTeam to the nearest even number >= 2 and <= T-1.
+      if (gamesPerTeam % 2 !== 0) {
+        gamesPerTeam = Math.max(2, gamesPerTeam - 1);
+      }
+      gamesPerTeam = Math.min(gamesPerTeam, T - 1);
+    } else {
+      // If T is even, they can play any number of games <= T-1.
+      gamesPerTeam = Math.min(gamesPerTeam, T - 1);
+    }
 
-    // Build balanced time slots
-    // If odd team count, rounds MUST be a multiple of originalCount to balance byes.
-    // We default to a full round-robin (originalCount rounds).
-    let numRounds = rounds || (n - 1);
-    if (isOdd) {
-      if (!rounds || rounds % originalCount !== 0) {
-        // Enforce a multiple of originalCount (usually 1x originalCount, i.e., full round-robin)
-        numRounds = originalCount;
+    // Now generate the matches.
+    const matchesToSchedule = [];
+    if (T % 2 === 0) {
+      // Standard round-robin rotation for even teams is extremely balanced and simple
+      const list = [...shuffled];
+      for (let round = 0; round < gamesPerTeam; round++) {
+        for (let i = 0; i < T / 2; i++) {
+          const t1 = list[i];
+          const t2 = list[T - 1 - i];
+          if (t1 && t2) {
+            matchesToSchedule.push({ team1: t1, team2: t2 });
+          }
+        }
+        // Rotate
+        const last = list.pop();
+        list.splice(1, 0, last);
+      }
+    } else {
+      // Odd teams: generate G-regular graph to guarantee exactly G games per team
+      for (let offset = 1; offset <= gamesPerTeam / 2; offset++) {
+        for (let i = 0; i < T; i++) {
+          const t1 = shuffled[i];
+          const t2 = shuffled[(i + offset) % T];
+          matchesToSchedule.push({ team1: t1, team2: t2 });
+        }
       }
     }
 
+    // Now, schedule these matches into rounds
+    // In any single round, a team can play at most once. We have at most `courts` courts.
+    const roundsList = [];
+
+    // Greedily distribute matches to rounds
+    matchesToSchedule.forEach((m) => {
+      // Find the first round where:
+      // 1. Neither team is already playing
+      // 2. The round has fewer than `courts` matches
+      let targetRound = roundsList.find(r => 
+        r.matches.length < courts &&
+        !r.playingTeams.has(m.team1.id) &&
+        !r.playingTeams.has(m.team2.id)
+      );
+
+      if (!targetRound) {
+        // Create a new round
+        targetRound = {
+          matches: [],
+          playingTeams: new Set()
+        };
+        roundsList.push(targetRound);
+      }
+
+      targetRound.matches.push(m);
+      targetRound.playingTeams.add(m.team1.id);
+      targetRound.playingTeams.add(m.team2.id);
+    });
+
+    const numRounds = roundsList.length;
     const interval = intervalMinutes || 60;
     const [startH, startM] = (startTime || '10:00').split(':').map(Number);
 
@@ -222,32 +278,19 @@ app.post('/api/schedule/generate', authenticateToken, (req, res) => {
       return `${displayH}:${String(m).padStart(2, '0')} ${suffix}`;
     });
 
-    // Generate round-robin using rotation algorithm
-    const list = [...shuffled];
     const matches = [];
-
-    for (let round = 0; round < numRounds; round++) {
-      const roundPairs = [];
-      for (let i = 0; i < n / 2; i++) {
-        const t1 = list[i];
-        const t2 = list[n - 1 - i];
-        if (t1 && t2) roundPairs.push({ t1, t2 });
-      }
-      // Limit to available courts
-      roundPairs.slice(0, courts).forEach((pair, idx) => {
+    roundsList.forEach((r, roundIdx) => {
+      r.matches.forEach((m, courtIdx) => {
         matches.push({
-          id: `g-${Date.now()}-${round}-${idx}`,
-          team1_id: pair.t1.id,
-          team2_id: pair.t2.id,
-          court: `Court ${idx + 1}`,
-          time: timeSlots[round],
+          id: `g-${Date.now()}-${roundIdx}-${courtIdx}`,
+          team1_id: m.team1.id,
+          team2_id: m.team2.id,
+          court: `Court ${courtIdx + 1}`,
+          time: timeSlots[roundIdx],
           stage: 'pool'
         });
       });
-      // Rotate: keep element 0 fixed, rotate the rest
-      const last = list.pop();
-      list.splice(1, 0, last);
-    }
+    });
 
     // Clear existing matches then insert new ones
     db.run('DELETE FROM matches', [], (err) => {

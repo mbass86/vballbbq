@@ -92,17 +92,19 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule, addMatch }
   };
 
   const handleGenerate = async () => {
-    const isOdd = teams.length % 2 !== 0;
-    const roundedRounds = isOdd ? teams.length : rounds;
-    let confirmMsg = `This will DELETE the current schedule and generate a new balanced schedule distributed across teams with ${courts} courts. Continue?`;
-    if (isOdd) {
-      confirmMsg = `You have 9 registered teams (odd count). To ensure a mathematically balanced pool play where every team plays exactly the same number of games (8 games, 1 bye round), this will generate a perfect ${teams.length}-round pool play. Continue?`;
+    const T = teams.length;
+    const isOdd = T % 2 !== 0;
+    let targetGames = parseInt(rounds) || 4;
+    if (isOdd && targetGames % 2 !== 0) {
+      targetGames = Math.max(2, targetGames - 1);
     }
+
+    const confirmMsg = `This will DELETE the current pool schedule and generate a new balanced schedule where each team plays exactly ${targetGames} games. Continue?`;
 
     if (!window.confirm(confirmMsg)) return;
     setLoading(true);
     try {
-      await generateSchedule({ courts: parseInt(courts), rounds: parseInt(roundedRounds), startTime, intervalMinutes: parseInt(interval) });
+      await generateSchedule({ courts: parseInt(courts), rounds: targetGames, startTime, intervalMinutes: parseInt(interval) });
     } catch (err) {
       alert(err.message);
     }
@@ -121,7 +123,7 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule, addMatch }
   return (
     <div className="glass-panel" style={{ marginTop: '16px', padding: 0, overflow: 'hidden', border: '1px solid rgba(255, 77, 109, 0.3)' }}>
       <div
-        style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+        style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifycontent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
         onClick={() => setOpen(o => !o)}
       >
         <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-magenta)' }}>
@@ -133,24 +135,17 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule, addMatch }
       {open && (
         <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--glass-border)' }}>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '14px', marginBottom: '16px' }}>
-            Generate a mathematically balanced pool play schedule. For odd team counts (e.g. 9), the system automatically schedules the optimal rounds so that every team has an identical number of games.
+            Generate a mathematically balanced pool play schedule. Set how many games each team should play. The system distributes byes perfectly.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
             <div>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Courts</label>
               <input className="input" type="number" min="1" max="20" value={courts} onChange={e => setCourts(e.target.value)} style={{ padding: '6px 10px' }} />
             </div>
-            {teams.length % 2 === 0 ? (
-              <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Rounds (time slots)</label>
-                <input className="input" type="number" min="1" max="20" value={rounds} onChange={e => setRounds(e.target.value)} style={{ padding: '6px 10px' }} />
-              </div>
-            ) : (
-              <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Rounds (Auto-set)</label>
-                <input className="input" type="text" disabled value={`${teams.length} (Balanced Pool)`} style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.02)', color: 'var(--text-secondary)' }} />
-              </div>
-            )}
+            <div>
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Games per Team</label>
+              <input className="input" type="number" min="2" max={teams.length - 1} value={rounds} onChange={e => setRounds(e.target.value)} style={{ padding: '6px 10px' }} />
+            </div>
             <div>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Start Time (24h)</label>
               <input className="input" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={{ padding: '6px 10px' }} />
@@ -160,6 +155,11 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule, addMatch }
               <input className="input" type="number" min="15" max="240" step="15" value={interval} onChange={e => setIntervalMin(e.target.value)} style={{ padding: '6px 10px' }} />
             </div>
           </div>
+          {teams.length % 2 !== 0 && (
+            <p style={{ fontSize: '0.75rem', color: 'var(--accent-blue)', marginTop: '0', marginBottom: '16px' }}>
+              ℹ️ With {teams.length} teams (odd count), each team must play an even number of games (e.g. 4) to ensure perfectly balanced schedules.
+            </p>
+          )}
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={handleGenerate} disabled={loading || teams.length < 2} style={{ fontSize: '0.85rem' }}>
               <Shuffle size={15} /> {loading ? 'Generating...' : 'Generate Pool Play'}
