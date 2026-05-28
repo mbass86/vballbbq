@@ -228,7 +228,7 @@ function AdminSchedulePanel({ teams, clearSchedule, generateSchedule, addMatch }
 // Single bracket node card component
 function BracketCard({ match, title, teams, auth, onScoreChange, isAdmin, onEditClick, onDeleteClick }) {
   const getTeamName = (teamId) => teams.find(t => t.id === teamId)?.name ?? 'TBD';
-  const completed = match?.score1 !== null && match?.score2 !== null;
+  const completed = !!match && match.score1 !== null && match.score2 !== null;
 
   return (
     <div className="glass-panel match-card" style={{ padding: '16px', border: completed ? '1px solid var(--accent-blue)' : '1px solid rgba(255,255,255,0.1)', width: '280px' }}>
@@ -246,7 +246,7 @@ function BracketCard({ match, title, teams, auth, onScoreChange, isAdmin, onEdit
       </div>
 
       <div className="team-row" style={{ marginBottom: '8px' }}>
-        <span className="team-name" style={completed && match.score1 > match.score2 ? { color: 'var(--accent-blue)', fontWeight: 700 } : {}}>
+        <span className="team-name" style={completed && match && match.score1 > match.score2 ? { color: 'var(--accent-blue)', fontWeight: 700 } : {}}>
           {getTeamName(match?.team1_id)}
         </span>
         {auth && match ? (
@@ -259,7 +259,7 @@ function BracketCard({ match, title, teams, auth, onScoreChange, isAdmin, onEdit
       </div>
 
       <div className="team-row">
-        <span className="team-name" style={completed && match.score2 > match.score1 ? { color: 'var(--accent-blue)', fontWeight: 700 } : {}}>
+        <span className="team-name" style={completed && match && match.score2 > match.score1 ? { color: 'var(--accent-blue)', fontWeight: 700 } : {}}>
           {getTeamName(match?.team2_id)}
         </span>
         {auth && match ? (
