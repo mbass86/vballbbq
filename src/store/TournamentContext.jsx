@@ -247,6 +247,9 @@ export function TournamentProvider({ children }) {
     });
 
     matches.forEach(m => {
+      // Exclude playoff matches from standings calculation
+      if (m.stage && m.stage !== 'pool') return;
+
       if (m.score1 !== null && m.score2 !== null) {
         const s1 = parseInt(m.score1, 10);
         const s2 = parseInt(m.score2, 10);
@@ -283,6 +286,28 @@ export function TournamentProvider({ children }) {
     });
   };
 
+  const generatePlayoffs = async () => {
+    const res = await fetch(`${API_URL}/playoffs/generate`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    fetchData(); // Reload matches
+    return data;
+  };
+
+  const advancePlayoffs = async () => {
+    const res = await fetch(`${API_URL}/playoffs/advance`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    fetchData(); // Reload matches
+    return data;
+  };
+
   const value = {
     teams,
     matches,
@@ -304,6 +329,8 @@ export function TournamentProvider({ children }) {
     deletePlayer,
     getStandings,
     sendReminders,
+    generatePlayoffs,
+    advancePlayoffs,
   };
 
   return (

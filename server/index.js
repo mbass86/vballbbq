@@ -192,12 +192,24 @@ app.post('/api/schedule/generate', authenticateToken, (req, res) => {
 
     // Shuffle teams randomly
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
-    // Pad to even number with null (bye)
-    if (shuffled.length % 2 !== 0) shuffled.push(null);
+    const originalCount = shuffled.length;
+    const isOdd = originalCount % 2 !== 0;
+
+    // Pad to even number with null (bye) for the circle rotation
+    if (isOdd) shuffled.push(null);
     const n = shuffled.length;
 
-    // Build time slots
-    const numRounds = rounds || (n - 1);
+    // Build balanced time slots
+    // If odd team count, rounds MUST be a multiple of originalCount to balance byes.
+    // We default to a full round-robin (originalCount rounds).
+    let numRounds = rounds || (n - 1);
+    if (isOdd) {
+      if (!rounds || rounds % originalCount !== 0) {
+        // Enforce a multiple of originalCount (usually 1x originalCount, i.e., full round-robin)
+        numRounds = originalCount;
+      }
+    }
+
     const interval = intervalMinutes || 60;
     const [startH, startM] = (startTime || '10:00').split(':').map(Number);
 
@@ -228,7 +240,8 @@ app.post('/api/schedule/generate', authenticateToken, (req, res) => {
           team1_id: pair.t1.id,
           team2_id: pair.t2.id,
           court: `Court ${idx + 1}`,
-          time: timeSlots[round]
+          time: timeSlots[round],
+          stage: 'pool'
         });
       });
       // Rotate: keep element 0 fixed, rotate the rest
@@ -239,13 +252,175 @@ app.post('/api/schedule/generate', authenticateToken, (req, res) => {
     // Clear existing matches then insert new ones
     db.run('DELETE FROM matches', [], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      const stmt = db.prepare('INSERT INTO matches (id, team1_id, team2_id, court, time) VALUES (?, ?, ?, ?, ?)');
-      matches.forEach(m => stmt.run(m.id, m.team1_id, m.team2_id, m.court, m.time));
+      const stmt = db.prepare('INSERT INTO matches (id, team1_id, team2_id, court, time, stage) VALUES (?, ?, ?, ?, ?, ?)');
+      matches.forEach(m => stmt.run(m.id, m.team1_id, m.team2_id, m.court, m.time, 'pool'));
       stmt.finalize((err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(matches);
       });
     });
+  });
+});
+
+// Generate top-8 single elimination playoffs bracket (admin)
+app.post('/api/playoffs/generate', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+
+  // 1. Calculate pool standings to get top 8 seeds
+  const queryTeams = `
+    SELECT t.id, t.name, COUNT(r.id) AS player_count
+    FROM teams t
+    LEFT JOIN roster r ON r.team_id = t.id
+    GROUP BY t.id, t.name
+  `;
+
+  db.all(queryTeams, [], (err, teamsList) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    db.all("SELECT * FROM matches WHERE stage = 'pool' OR stage IS NULL", [], (err, poolMatches) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Compute standings
+      const stats = {};
+      teamsList.forEach(t => {
+        stats[t.id] = { id: t.id, name: t.name, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0, pointDiff: 0, played: 0 };
+      });
+
+      poolMatches.forEach(m => {
+        if (m.score1 !== null && m.score2 !== null) {
+          const s1 = parseInt(m.score1, 10);
+          const s2 = parseInt(m.score2, 10);
+          if (!stats[m.team1_id] || !stats[m.team2_id]) return;
+
+          stats[m.team1_id].played += 1;
+          stats[m.team2_id].played += 1;
+          stats[m.team1_id].pointsFor += s1;
+          stats[m.team1_id].pointsAgainst += s2;
+          stats[m.team1_id].pointDiff += (s1 - s2);
+          
+          stats[m.team2_id].pointsFor += s2;
+          stats[m.team2_id].pointsAgainst += s1;
+          stats[m.team2_id].pointDiff += (s2 - s1);
+
+          if (s1 > s2) {
+            stats[m.team1_id].wins += 1;
+            stats[m.team2_id].losses += 1;
+          } else if (s2 > s1) {
+            stats[m.team2_id].wins += 1;
+            stats[m.team1_id].losses += 1;
+          } else {
+            stats[m.team1_id].ties += 1;
+            stats[m.team2_id].ties += 1;
+          }
+        }
+      });
+
+      const sortedStandings = Object.values(stats).sort((a, b) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return b.pointDiff - a.pointDiff;
+      });
+
+      if (sortedStandings.length < 8) {
+        return res.status(400).json({ error: 'Need at least 8 teams to generate playoffs bracket' });
+      }
+
+      const top8 = sortedStandings.slice(0, 8);
+
+      // Define standard bracket seedings: 1v8, 4v5, 2v7, 3v6
+      const qfPairs = [
+        { id: 'qf1', t1: top8[0], t2: top8[7], label: 'QF 1 (1 vs 8)' },
+        { id: 'qf2', t1: top8[3], t2: top8[4], label: 'QF 2 (4 vs 5)' },
+        { id: 'qf3', t1: top8[1], t2: top8[6], label: 'QF 3 (2 vs 7)' },
+        { id: 'qf4', t1: top8[2], t2: top8[5], label: 'QF 4 (3 vs 6)' }
+      ];
+
+      db.serialize(() => {
+        // Delete existing playoffs matches
+        db.run("DELETE FROM matches WHERE stage IN ('quarterfinal', 'semifinal', 'final', 'bronze')", [], (err) => {
+          if (err) return res.status(500).json({ error: err.message });
+
+          const stmt = db.prepare('INSERT INTO matches (id, team1_id, team2_id, court, time, stage) VALUES (?, ?, ?, ?, ?, ?)');
+          qfPairs.forEach((p, index) => {
+            stmt.run(p.id, p.t1.id, p.t2.id, `Court ${index + 1}`, 'Playoffs Round 1', 'quarterfinal');
+          });
+          stmt.finalize((err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: 'Playoffs quarterfinals successfully generated' });
+          });
+        });
+      });
+    });
+  });
+});
+
+// Advance bracket stage automatically (admin)
+app.post('/api/playoffs/advance', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+
+  // Find all current playoff matches
+  db.all("SELECT * FROM matches WHERE stage IN ('quarterfinal', 'semifinal', 'final', 'bronze')", [], (err, playoffMatches) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const qf = playoffMatches.filter(m => m.stage === 'quarterfinal');
+    const sf = playoffMatches.filter(m => m.stage === 'semifinal');
+
+    const getWinner = (m) => {
+      if (m.score1 === null || m.score2 === null) return null;
+      return m.score1 > m.score2 ? m.team1_id : m.team2_id;
+    };
+
+    const getLoser = (m) => {
+      if (m.score1 === null || m.score2 === null) return null;
+      return m.score1 < m.score2 ? m.team1_id : m.team2_id;
+    };
+
+    // Case 1: Advancing from Quarterfinals to Semifinals
+    if (qf.length === 4 && sf.length === 0) {
+      const qfWinners = qf.map(getWinner);
+      if (qfWinners.includes(null)) {
+        return res.status(400).json({ error: 'All 4 Quarterfinals must have scores entered before advancing to Semifinals' });
+      }
+
+      db.serialize(() => {
+        db.run("DELETE FROM matches WHERE stage IN ('semifinal', 'final', 'bronze')");
+        const stmt = db.prepare('INSERT INTO matches (id, team1_id, team2_id, court, time, stage) VALUES (?, ?, ?, ?, ?, ?)');
+        // S1: QF1 vs QF2
+        stmt.run('sf1', qfWinners[0], qfWinners[1], 'Court 1', 'Semifinals', 'semifinal');
+        // S2: QF3 vs QF4
+        stmt.run('sf2', qfWinners[2], qfWinners[3], 'Court 2', 'Semifinals', 'semifinal');
+        stmt.finalize((err) => {
+          if (err) return res.status(500).json({ error: err.message });
+          res.json({ message: 'Semifinals bracket successfully populated' });
+        });
+      });
+      return;
+    }
+
+    // Case 2: Advancing from Semifinals to Finals (Gold & Bronze Games)
+    if (sf.length === 2) {
+      const sfWinners = sf.map(getWinner);
+      const sfLosers = sf.map(getLoser);
+
+      if (sfWinners.includes(null)) {
+        return res.status(400).json({ error: 'Both Semifinals must have scores entered before advancing to Finals' });
+      }
+
+      db.serialize(() => {
+        db.run("DELETE FROM matches WHERE stage IN ('final', 'bronze')");
+        const stmt = db.prepare('INSERT INTO matches (id, team1_id, team2_id, court, time, stage) VALUES (?, ?, ?, ?, ?, ?)');
+        // Gold Medal Match
+        stmt.run('final_gold', sfWinners[0], sfWinners[1], 'Court 1', 'Gold Match', 'final');
+        // Bronze Medal Match
+        stmt.run('final_bronze', sfLosers[0], sfLosers[1], 'Court 2', 'Bronze Match', 'bronze');
+        stmt.finalize((err) => {
+          if (err) return res.status(500).json({ error: err.message });
+          res.json({ message: 'Finals (Gold and Bronze games) successfully populated' });
+        });
+      });
+      return;
+    }
+
+    res.status(400).json({ error: 'No matching playoff round to advance. Make sure all games in the current round are completed.' });
   });
 });
 

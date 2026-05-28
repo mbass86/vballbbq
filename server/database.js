@@ -42,9 +42,15 @@ export function initDatabase() {
         score1 INTEGER,
         score2 INTEGER,
         court TEXT,
-        time TEXT
+        time TEXT,
+        stage TEXT DEFAULT 'pool'
       )
     `);
+
+    // Safe migration to add stage column to matches table
+    db.run('ALTER TABLE matches ADD COLUMN stage TEXT DEFAULT "pool"', (err) => {
+      // Ignore if column already exists
+    });
 
     db.run(`
       CREATE TABLE IF NOT EXISTS roster (
